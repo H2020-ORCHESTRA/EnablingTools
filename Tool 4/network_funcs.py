@@ -2,15 +2,13 @@ import osmnx as ox
 import networkx as nx
 import igraph as ig
 import os
-import random
-from random import *
 import imageio
 import pandas as pd
-from  matplotlib.colors import LinearSegmentedColormap
+import math
 
 # Initiate Globals
+globals()["period"] = 60
 globals()["weight"] = ["travel_car","travel_train","speed_kph","length","lanes"]
-cmap=LinearSegmentedColormap.from_list('rg',["g", "w","y","r"], N=256) 
 
 def transform_nx_to_igragh(G):
     osmids = list(G.nodes)
@@ -21,11 +19,10 @@ def transform_nx_to_igragh(G):
     G_ig.vs["osmid"] = osmids
     for w in weight:
         weights = list((nx.get_edge_attributes(G, w).values()))
-        print(weights)
         try:        
-            weights = [float(w) for w in weights]
+            weights = [int(float(w)) for w in weights]
         except:
-            weights = [max(w) for w in weights]
+            weights = [int(max(w)) for w in weights]
         G_ig.es[w] = weights
         osmid_values = {k: v for k, v in zip(G.nodes, osmids)}
         nx.set_node_attributes(G, osmid_values, "osmid")
@@ -76,11 +73,11 @@ def save_to_gif():
             images.append(imageio.imread(file_path))
     imageio.mimsave(os.path.join(cwd,png_dir,'movie.gif'), images,fps = 1)
 
-def adjust_for_next_period(G_ig,dict_path,routes,initial_start,edges_dict_veh):
+def adjust_for_next_period(G_ig,dict_path,routes,initial_start,edges_dict_veh,step):
     for args in dict_path.items():
         idx = args[0][1]
         edge = G_ig.es[args[0][0]]
-        if args[1][1] >= (step)*period and args[1][0]<= (step-1)*period:
+        if args[1][1] >= (step)*period and args[1][0]<= (step)*period:
             new_start_node = edge.target
             initial_start[idx] = args[1][1] # Fix re-computing to be executed only once
             index = routes[idx].index(new_start_node)
@@ -114,41 +111,6 @@ def update_dicts(G_ig,routes,initial_start,step,edges_dict_veh):
             cur_time+=duration
     edges_dict_veh = {x:y for x,y in edges_dict_veh.items() if y!=0}
     return dict_path,edges_dict_veh
-
-def generate_random_trips(G_ig,step,routes,initial_start,df,mode_split = 0.9):
-    random.seed(step)
-    # Handcrafted for Milano
-    malpensa_xpress = [28168, 6499, 4912, 47496, 60959, 59253, 66380, 32154, 1078]
-    airport_node = 4735
-
-    for t in range(0,num_trips):
-        idx_t = step*num_trips + t # Identifier of trip
-        if np.random.rand() >=mode_split:
-            opt_weight = "travel_train"
-            if np.random.rand() >=0.5:
-                orig = airport_node
-                dest = random.choice(malpensa_xpress)
-                starts = df.loc[orig,"starts_from_malpensa"].split(",")
-            else:
-                dest = airport_node
-                orig = random.choice(malpensa_xpress)   
-                starts = df.loc[orig,"starts_from_center"].split(",")      
-            route = G_ig.get_shortest_paths(v=orig, to=dest, weights=opt_weight)[0]
-            starts = df.loc[orig,"starts_from_"+"center"].split(",")
-            starts = [int(x)-step if int(x)*60-step*period > 0 else np.inf for x in starts]
-            initial_start[idx_t] = (min(starts)+step)*period
-        else:
-            opt_weight = "travel_car"
-            if np.random.rand() >=0.5:
-                orig = airport_node
-                dest = random.choice(G_ig.vs).index
-            else:
-                dest = airport_node
-                orig = random.choice(G_ig.vs).index
-            route = G_ig.get_shortest_paths(v=orig, to=dest, weights=opt_weight)[0]
-            initial_start[idx_t] = step*period 
-        routes.append(route)
-    return routes,initial_start
 
 def update_gdfs(G_ig,gdf_edges,edges_dict_veh,step,max_speed):
 
@@ -188,7 +150,7 @@ def update_gdfs(G_ig,gdf_edges,edges_dict_veh,step,max_speed):
         edges_passengers[index] = passengers
         edges_density[index] =density
         edges_speed[index] = speed
-        #edges_travel_car[index] = travel_car
+
     G_ig.es['passengers'] = edges_passengers
     G_ig.es['density'] = edges_density
     G_ig.es['speed_kph'] = edges_speed
